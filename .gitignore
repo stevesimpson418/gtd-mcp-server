@@ -1,0 +1,20 @@
+# Credentials and secrets
+credentials/
+!credentials/.gitkeep
+.env
+token.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+dist/
+*.egg-info/
+.venv/
+
+# Tools
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.claude/

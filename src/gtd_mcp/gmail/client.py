@@ -1,0 +1,354 @@
+"""Gmail API client wrapper for read, archive, label, compose, and delete operations."""
+
+from __future__ import annotations
+
+import base64
+import logging
+from email.mime.text import MIMEText
+
+from gtd_mcp.gmail.exceptions import GmailAPIError
+
+logger = logging.getLogger(__name__)
+
+
+class GmailClient:
+    """Client wrapping the Gmail API.
+
+    All methods use userId="me" (the authenticated user).
+    """
+
+    def __init__(self, service) -> None:
+        self._service = service
+        self._label_cache: dict[str, str] | None = None
+
+    # --- Read operations ---
+
+    def search_messages(self, query: str, max_results: int = 20) -> list[dict]:
+        """Search for messages matching a Gmail query.
+
+        Returns trimmed summaries (id, thread_id, subject, from, date, snippet).
+        Full body is only available via read_message().
+        """
+        try:
+            response = (
+                self._service.users()
+                .messages()
+                .list(userId="me", q=query, maxResults=max_results)
+                .execute()
+            )
+            messages = response.get("messages", [])
+            if not messages:
+                return []
+
+            results = []
+            for msg_ref in messages:
+                msg = (
+                    self._service.users()
+                    .messages()
+                    .get(
+                        userId="me",
+                        id=msg_ref["id"],
+                        format="metadata",
+                        metadataHeaders=["Subject", "From", "Date"],
+                    )
+                    .execute()
+                )
+                results.append(self._parse_message_summary(msg))
+            return results
+        except Exception as e:
+            raise GmailAPIError(f"Failed to search messages: {e}") from e
+
+    def read_message(self, message_id: str) -> dict:
+        """Read a full message including body content."""
+        try:
+            msg = (
+                self._service.users()
+                .messages()
+                .get(userId="me", id=message_id, format="full")
+                .execute()
+            )
+            return self._parse_full_message(msg)
+        except Exception as e:
+            raise GmailAPIError(f"Failed to read message {message_id}: {e}") from e
+
+    def read_thread(self, thread_id: str) -> dict:
+        """Read all messages in a thread."""
+        try:
+            thread = (
+                self._service.users()
+                .threads()
+                .get(userId="me", id=thread_id, format="full")
+                .execute()
+            )
+            messages = [self._parse_full_message(msg) for msg in thread.get("messages", [])]
+            return {"thread_id": thread_id, "message_count": len(messages), "messages": messages}
+        except Exception as e:
+            raise GmailAPIError(f"Failed to read thread {thread_id}: {e}") from e
+
+    # --- Label operations ---
+
+    def list_labels(self) -> list[dict]:
+        """List all Gmail labels."""
+        try:
+            response = self._service.users().labels().list(userId="me").execute()
+            labels = response.get("labels", [])
+            return [
+                {"id": lbl["id"], "name": lbl["name"], "type": lbl.get("type", "")}
+                for lbl in labels
+            ]
+        except Exception as e:
+            raise GmailAPIError(f"Failed to list labels: {e}") from e
+
+    def create_label(
+        self,
+        name: str,
+        text_color: str | None = None,
+        background_color: str | None = None,
+    ) -> dict:
+        """Create a new Gmail label."""
+        try:
+            body: dict = {
+                "name": name,
+                "labelListVisibility": "labelShow",
+                "messageListVisibility": "show",
+            }
+            if text_color and background_color:
+                body["color"] = {"textColor": text_color, "backgroundColor": background_color}
+            label = self._service.users().labels().create(userId="me", body=body).execute()
+            return {"id": label["id"], "name": label["name"]}
+        except Exception as e:
+            raise GmailAPIError(f"Failed to create label '{name}': {e}") from e
+
+    def apply_label(self, message_ids: list[str], label_name: str) -> dict:
+        """Apply a label to messages by label name."""
+        label_id = self._resolve_label_id(label_name)
+        return self._modify_messages(message_ids, add_labels=[label_id])
+
+    def remove_label(self, message_ids: list[str], label_name: str) -> dict:
+        """Remove a label from messages by label name."""
+        label_id = self._resolve_label_id(label_name)
+        return self._modify_messages(message_ids, remove_labels=[label_id])
+
+    # --- Archive operations ---
+
+    def archive_messages(self, message_ids: list[str]) -> dict:
+        """Archive messages by removing the INBOX label."""
+        return self._modify_messages(message_ids, remove_labels=["INBOX"])
+
+    def bulk_archive(self, query: str) -> dict:
+        """Search for messages and archive all results.
+
+        This is the highest-value operation — clears matching mail in one call.
+        """
+        try:
+            all_ids = []
+            page_token = None
+            while True:
+                response = (
+                    self._service.users()
+                    .messages()
+                    .list(userId="me", q=query, maxResults=500, pageToken=page_token)
+                    .execute()
+                )
+                messages = response.get("messages", [])
+                all_ids.extend(msg["id"] for msg in messages)
+                page_token = response.get("nextPageToken")
+                if not page_token:
+                    break
+
+            if not all_ids:
+                return {"archived": 0, "query": query}
+
+            # Use batchModify for efficiency
+            self._service.users().messages().batchModify(
+                userId="me",
+                body={"ids": all_ids, "removeLabelIds": ["INBOX"]},
+            ).execute()
+            return {"archived": len(all_ids), "query": query}
+        except Exception as e:
+            raise GmailAPIError(f"Failed to bulk archive for query '{query}': {e}") from e
+
+    # --- Read state ---
+
+    def mark_read(self, message_ids: list[str]) -> dict:
+        """Mark messages as read by removing UNREAD label."""
+        return self._modify_messages(message_ids, remove_labels=["UNREAD"])
+
+    def mark_unread(self, message_ids: list[str]) -> dict:
+        """Mark messages as unread by adding UNREAD label."""
+        return self._modify_messages(message_ids, add_labels=["UNREAD"])
+
+    # --- Compose / Send ---
+
+    def create_draft(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+        thread_id: str | None = None,
+        cc: str | None = None,
+    ) -> dict:
+        """Create a draft email. Use thread_id for in-thread replies."""
+        try:
+            raw = self._build_mime_message(to, subject, body, cc)
+            draft_body: dict = {"message": {"raw": raw}}
+            if thread_id:
+                draft_body["message"]["threadId"] = thread_id
+            draft = self._service.users().drafts().create(userId="me", body=draft_body).execute()
+            return {
+                "draft_id": draft["id"],
+                "message_id": draft["message"]["id"],
+                "thread_id": draft["message"].get("threadId"),
+            }
+        except Exception as e:
+            raise GmailAPIError(f"Failed to create draft: {e}") from e
+
+    def send_email(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+        cc: str | None = None,
+    ) -> dict:
+        """Send an email directly."""
+        try:
+            raw = self._build_mime_message(to, subject, body, cc)
+            sent = self._service.users().messages().send(userId="me", body={"raw": raw}).execute()
+            return {"message_id": sent["id"], "thread_id": sent.get("threadId")}
+        except Exception as e:
+            raise GmailAPIError(f"Failed to send email: {e}") from e
+
+    def send_draft(self, draft_id: str) -> dict:
+        """Send an existing draft."""
+        try:
+            sent = self._service.users().drafts().send(userId="me", body={"id": draft_id}).execute()
+            return {"message_id": sent["id"], "thread_id": sent.get("threadId")}
+        except Exception as e:
+            raise GmailAPIError(f"Failed to send draft {draft_id}: {e}") from e
+
+    # --- Delete ---
+
+    def trash_messages(self, message_ids: list[str]) -> dict:
+        """Move messages to trash (recoverable for 30 days)."""
+        try:
+            succeeded = 0
+            failed = 0
+            for msg_id in message_ids:
+                try:
+                    self._service.users().messages().trash(userId="me", id=msg_id).execute()
+                    succeeded += 1
+                except Exception:
+                    failed += 1
+            return {"succeeded": succeeded, "failed": failed}
+        except Exception as e:
+            raise GmailAPIError(f"Failed to trash messages: {e}") from e
+
+    # --- Private helpers ---
+
+    def _modify_messages(
+        self,
+        message_ids: list[str],
+        add_labels: list[str] | None = None,
+        remove_labels: list[str] | None = None,
+    ) -> dict:
+        """Batch modify labels on messages."""
+        try:
+            body: dict = {"ids": message_ids}
+            if add_labels:
+                body["addLabelIds"] = add_labels
+            if remove_labels:
+                body["removeLabelIds"] = remove_labels
+            self._service.users().messages().batchModify(userId="me", body=body).execute()
+            return {"modified": len(message_ids)}
+        except Exception as e:
+            raise GmailAPIError(f"Failed to modify messages: {e}") from e
+
+    def _resolve_label_id(self, label_name: str) -> str:
+        """Resolve a label name to its ID. Caches label list."""
+        if self._label_cache is None:
+            labels = self.list_labels()
+            self._label_cache = {lbl["name"].lower(): lbl["id"] for lbl in labels}
+
+        label_id = self._label_cache.get(label_name.lower())
+        if label_id is None:
+            available = ", ".join(sorted(self._label_cache.keys()))
+            raise ValueError(f"Label '{label_name}' not found. Available labels: {available}")
+        return label_id
+
+    @staticmethod
+    def _build_mime_message(to: str, subject: str, body: str, cc: str | None = None) -> str:
+        """Build a base64url-encoded MIME message."""
+        msg = MIMEText(body)
+        msg["to"] = to
+        msg["subject"] = subject
+        if cc:
+            msg["cc"] = cc
+        return base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
+
+    @staticmethod
+    def _get_header(headers: list[dict], name: str) -> str:
+        """Extract a header value by name."""
+        for h in headers:
+            if h["name"].lower() == name.lower():
+                return h["value"]
+        return ""
+
+    def _parse_message_summary(self, msg: dict) -> dict:
+        """Parse a metadata-format message into a summary dict."""
+        headers = msg.get("payload", {}).get("headers", [])
+        return {
+            "id": msg["id"],
+            "thread_id": msg["threadId"],
+            "subject": self._get_header(headers, "Subject"),
+            "from": self._get_header(headers, "From"),
+            "date": self._get_header(headers, "Date"),
+            "snippet": msg.get("snippet", ""),
+            "label_ids": msg.get("labelIds", []),
+        }
+
+    def _parse_full_message(self, msg: dict) -> dict:
+        """Parse a full-format message including body."""
+        headers = msg.get("payload", {}).get("headers", [])
+        body = self._extract_body(msg.get("payload", {}))
+        return {
+            "id": msg["id"],
+            "thread_id": msg["threadId"],
+            "subject": self._get_header(headers, "Subject"),
+            "from": self._get_header(headers, "From"),
+            "to": self._get_header(headers, "To"),
+            "cc": self._get_header(headers, "Cc"),
+            "date": self._get_header(headers, "Date"),
+            "snippet": msg.get("snippet", ""),
+            "label_ids": msg.get("labelIds", []),
+            "body": body,
+        }
+
+    @staticmethod
+    def _extract_body(payload: dict) -> str:
+        """Extract body text from a message payload, preferring text/plain."""
+        # Simple message (no parts)
+        if "body" in payload and payload["body"].get("data"):
+            data = payload["body"]["data"]
+            return base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
+
+        # Multipart message
+        parts = payload.get("parts", [])
+        # First pass: look for text/plain
+        for part in parts:
+            if part.get("mimeType") == "text/plain" and part.get("body", {}).get("data"):
+                return base64.urlsafe_b64decode(part["body"]["data"]).decode(
+                    "utf-8", errors="replace"
+                )
+        # Second pass: fall back to text/html
+        for part in parts:
+            if part.get("mimeType") == "text/html" and part.get("body", {}).get("data"):
+                return base64.urlsafe_b64decode(part["body"]["data"]).decode(
+                    "utf-8", errors="replace"
+                )
+        # Nested multipart (e.g. multipart/alternative inside multipart/mixed)
+        for part in parts:
+            if "parts" in part:
+                result = GmailClient._extract_body(part)
+                if result:
+                    return result
+        return ""

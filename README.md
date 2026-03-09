@@ -12,7 +12,7 @@ A local [MCP](https://modelcontextprotocol.io/) server that gives Claude native,
 
 ```bash
 # Clone the repo
-git clone https://github.com/your-username/gtd-mcp-server.git
+git clone https://github.com/stevesimpson418/gtd-mcp-server.git
 cd gtd-mcp-server
 
 # Create a virtual environment and install

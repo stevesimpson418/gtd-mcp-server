@@ -178,6 +178,16 @@ class GmailClient:
         """Mark messages as unread by adding UNREAD label."""
         return self._modify_messages(message_ids, add_labels=["UNREAD"])
 
+    # --- Star / Important ---
+
+    def star_messages(self, message_ids: list[str]) -> dict:
+        """Star messages by adding STARRED label."""
+        return self._modify_messages(message_ids, add_labels=["STARRED"])
+
+    def mark_important(self, message_ids: list[str]) -> dict:
+        """Mark messages as important by adding IMPORTANT label."""
+        return self._modify_messages(message_ids, add_labels=["IMPORTANT"])
+
     # --- Compose / Send ---
 
     def create_draft(

@@ -202,6 +202,25 @@ class TodoistClient:
         except Exception as e:
             raise TodoistAPIError(f"Failed to delete label {label_id}: {e}") from e
 
+    def get_task_comments(self, task_id: str) -> list[dict]:
+        """Get all comments on a task."""
+        try:
+            comments = []
+            for page in self._api.get_comments(task_id=task_id):
+                for comment in page:
+                    comments.append(self._comment_to_dict(comment))
+            return comments
+        except Exception as e:
+            raise TodoistAPIError(f"Failed to fetch comments for task {task_id}: {e}") from e
+
+    def add_task_comment(self, task_id: str, content: str) -> dict:
+        """Add a comment to a task."""
+        try:
+            comment = self._api.add_comment(content, task_id=task_id)
+            return self._comment_to_dict(comment)
+        except Exception as e:
+            raise TodoistAPIError(f"Failed to add comment to task {task_id}: {e}") from e
+
     # --- Completed tasks (Sync API v9) ---
 
     def get_completed_tasks(
@@ -339,6 +358,17 @@ class TodoistClient:
         return commands
 
     # --- Helpers ---
+
+    @staticmethod
+    def _comment_to_dict(comment) -> dict:
+        """Convert a Todoist Comment object to a plain dict."""
+        result = {
+            "id": comment.id,
+            "content": comment.content,
+            "task_id": comment.task_id,
+            "posted_at": str(comment.posted_at),
+        }
+        return result
 
     @staticmethod
     def _task_to_dict(task, project_name: str | None = None) -> dict:

@@ -307,6 +307,50 @@ def register_gmail_tools(mcp: FastMCP) -> None:
         """
         return client.mark_unread(message_ids)
 
+    # --- Star / Important ---
+
+    @mcp.tool
+    def star_gmail_message(
+        message_ids: Annotated[list[str], Field(description="List of Gmail message IDs to star.")],
+    ) -> dict:
+        """Star Gmail messages.
+
+        Adds the STARRED label to messages, making them appear in the
+        Starred view in Gmail.
+
+        Args:
+            message_ids: List of message IDs from search_gmail().
+
+        Example:
+            star_gmail_message(message_ids=["msg1", "msg2"])
+
+        Returns:
+            {"modified": 2}
+        """
+        return client.star_messages(message_ids)
+
+    @mcp.tool
+    def mark_gmail_important(
+        message_ids: Annotated[
+            list[str], Field(description="List of Gmail message IDs to mark as important.")
+        ],
+    ) -> dict:
+        """Mark Gmail messages as important.
+
+        Adds the IMPORTANT label to messages, making them appear in the
+        Important view in Gmail.
+
+        Args:
+            message_ids: List of message IDs from search_gmail().
+
+        Example:
+            mark_gmail_important(message_ids=["msg1"])
+
+        Returns:
+            {"modified": 1}
+        """
+        return client.mark_important(message_ids)
+
     # --- Compose / Send ---
 
     @mcp.tool

@@ -452,6 +452,65 @@ class TestGetCompletedTasks:
 # --- Label tests ---
 
 
+@dataclass
+class FakeComment:
+    id: str = "comment_1"
+    content: str = "A comment"
+    task_id: str = "task_1"
+    posted_at: str = "2026-03-19T10:00:00Z"
+    project_id: str | None = None
+    attachment: None = None
+
+
+# --- Comment tests ---
+
+
+class TestGetTaskComments:
+    def test_get_task_comments_returns_dicts(self):
+        client, mock_api = make_client()
+        mock_api.get_comments.return_value = iter([[FakeComment(), FakeComment(id="comment_2")]])
+
+        comments = client.get_task_comments("task_1")
+        assert len(comments) == 2
+        assert comments[0]["id"] == "comment_1"
+        assert comments[0]["content"] == "A comment"
+        assert comments[0]["task_id"] == "task_1"
+        assert comments[0]["posted_at"] == "2026-03-19T10:00:00Z"
+        mock_api.get_comments.assert_called_once_with(task_id="task_1")
+
+    def test_get_task_comments_empty(self):
+        client, mock_api = make_client()
+        mock_api.get_comments.return_value = iter([[]])
+
+        comments = client.get_task_comments("task_1")
+        assert comments == []
+
+    def test_get_task_comments_api_error(self):
+        client, mock_api = make_client()
+        mock_api.get_comments.side_effect = Exception("Fail")
+
+        with pytest.raises(TodoistAPIError, match="Failed to fetch comments"):
+            client.get_task_comments("task_1")
+
+
+class TestAddTaskComment:
+    def test_add_task_comment(self):
+        client, mock_api = make_client()
+        mock_api.add_comment.return_value = FakeComment(content="New note")
+
+        result = client.add_task_comment("task_1", "New note")
+        assert result["content"] == "New note"
+        assert result["task_id"] == "task_1"
+        mock_api.add_comment.assert_called_once_with("New note", task_id="task_1")
+
+    def test_add_task_comment_api_error(self):
+        client, mock_api = make_client()
+        mock_api.add_comment.side_effect = Exception("Fail")
+
+        with pytest.raises(TodoistAPIError, match="Failed to add comment"):
+            client.add_task_comment("task_1", "Note")
+
+
 class TestLabels:
     def test_get_labels(self):
         client, mock_api = make_client()

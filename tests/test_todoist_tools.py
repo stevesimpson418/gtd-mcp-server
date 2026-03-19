@@ -73,6 +73,8 @@ class TestToolRegistration:
             "create_todoist_label",
             "rename_todoist_label",
             "delete_todoist_label",
+            "get_task_comments",
+            "add_task_comment",
         }
         assert expected == tool_names
 
@@ -190,6 +192,41 @@ class TestCreateTask:
             description="Notes",
         )
 
+    def test_delegates_with_multiple_labels(self, mcp_server, mock_client):
+        mock_instance, _ = register_with_token(mcp_server, mock_client)
+        mock_instance.create_task.return_value = {
+            "id": "t1",
+            "content": "Buy groceries",
+            "labels": ["Shopping", "Errands"],
+        }
+
+        fn = get_tool_fn(mcp_server, "create_task")
+        result = fn(content="Buy groceries", labels=["Shopping", "Errands"])
+
+        mock_instance.create_task.assert_called_once_with(
+            content="Buy groceries",
+            project="Inbox",
+            labels=["Shopping", "Errands"],
+            due_date=None,
+            description=None,
+        )
+        assert result["labels"] == ["Shopping", "Errands"]
+
+    def test_coerces_single_string_label_to_list(self, mcp_server, mock_client):
+        mock_instance, _ = register_with_token(mcp_server, mock_client)
+        mock_instance.create_task.return_value = {"id": "t1", "content": "Task"}
+
+        fn = get_tool_fn(mcp_server, "create_task")
+        fn(content="Task", labels="Shopping")
+
+        mock_instance.create_task.assert_called_once_with(
+            content="Task",
+            project="Inbox",
+            labels=["Shopping"],
+            due_date=None,
+            description=None,
+        )
+
 
 class TestUpdateTask:
     def test_delegates_partial_update(self, mcp_server, mock_client):
@@ -283,6 +320,39 @@ class TestRenameLabel:
 
         mock_instance.rename_label.assert_called_once_with("l1", "New")
         assert result["name"] == "New"
+
+
+class TestGetTaskComments:
+    def test_delegates_to_client(self, mcp_server, mock_client):
+        mock_instance, _ = register_with_token(mcp_server, mock_client)
+        mock_instance.get_task_comments.return_value = [
+            {"id": "c1", "content": "Note", "task_id": "t1", "posted_at": "2026-03-19"}
+        ]
+
+        fn = get_tool_fn(mcp_server, "get_task_comments")
+        result = fn(task_id="t1")
+
+        mock_instance.get_task_comments.assert_called_once_with("t1")
+        assert result == [
+            {"id": "c1", "content": "Note", "task_id": "t1", "posted_at": "2026-03-19"}
+        ]
+
+
+class TestAddTaskComment:
+    def test_delegates_to_client(self, mcp_server, mock_client):
+        mock_instance, _ = register_with_token(mcp_server, mock_client)
+        mock_instance.add_task_comment.return_value = {
+            "id": "c1",
+            "content": "Follow up",
+            "task_id": "t1",
+            "posted_at": "2026-03-19",
+        }
+
+        fn = get_tool_fn(mcp_server, "add_task_comment")
+        result = fn(task_id="t1", content="Follow up")
+
+        mock_instance.add_task_comment.assert_called_once_with("t1", "Follow up")
+        assert result["content"] == "Follow up"
 
 
 class TestDeleteLabel:

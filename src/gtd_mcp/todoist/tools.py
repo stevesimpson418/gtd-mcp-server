@@ -14,6 +14,13 @@ from gtd_mcp.todoist.client import TodoistClient
 logger = logging.getLogger(__name__)
 
 
+def _ensure_list(v: str | list[str]) -> list[str]:
+    """Coerce a single string into a one-element list for label params."""
+    if isinstance(v, str):
+        return [v]
+    return v
+
+
 def register_todoist_tools(mcp: FastMCP) -> None:
     """Register all Todoist tools with the MCP server.
 
@@ -150,7 +157,7 @@ def register_todoist_tools(mcp: FastMCP) -> None:
             ),
         ] = "Inbox",
         labels: Annotated[
-            list[str],
+            str | list[str],
             Field(
                 default=[],
                 description=(
@@ -182,6 +189,7 @@ def register_todoist_tools(mcp: FastMCP) -> None:
             content: The task title, e.g. "Buy groceries".
             project: Target project name. Defaults to "Inbox".
             labels: List of label names to apply, e.g. ["Shopping", "Home"].
+                A single string is also accepted and will be wrapped in a list.
             due_date: When it's due — "tomorrow", "next Friday", or "2026-03-15".
             description: Additional notes or details.
 
@@ -192,10 +200,11 @@ def register_todoist_tools(mcp: FastMCP) -> None:
         Returns:
             {"id": "123", "content": "Buy groceries", "labels": ["Shopping"], ...}
         """
+        normalized_labels = _ensure_list(labels) if labels else None
         return client.create_task(
             content=content,
             project=project,
-            labels=labels or None,
+            labels=normalized_labels,
             due_date=due_date or None,
             description=description or None,
         )
@@ -211,7 +220,7 @@ def register_todoist_tools(mcp: FastMCP) -> None:
             ),
         ] = "",
         labels: Annotated[
-            list[str],
+            str | list[str],
             Field(
                 default=[],
                 description=(
@@ -257,10 +266,11 @@ def register_todoist_tools(mcp: FastMCP) -> None:
         Returns:
             {"id": "123", "content": "Buy organic groceries", ...}
         """
+        normalized_labels = _ensure_list(labels) if labels else None
         return client.update_task(
             task_id=task_id,
             content=content or None,
-            labels=labels or None,
+            labels=normalized_labels,
             due_date=due_date or None,
             description=description or None,
         )
@@ -375,6 +385,48 @@ def register_todoist_tools(mcp: FastMCP) -> None:
             {"succeeded": 3, "failed": 0, "results": {"uuid1": "ok", ...}}
         """
         return client.batch_update(operations)
+
+    @mcp.tool(annotations={"readOnlyHint": True})
+    def get_task_comments(
+        task_id: Annotated[str, Field(description="The Todoist task ID to get comments for")],
+    ) -> list[dict]:
+        """Get all comments on a Todoist task.
+
+        Returns all comments attached to the specified task, ordered by creation time.
+
+        Args:
+            task_id: The task ID (from get_project_tasks or create_task).
+
+        Example:
+            get_task_comments(task_id="123")
+
+        Returns:
+            [{"id": "c1", "content": "Follow up tomorrow", "task_id": "123",
+              "posted_at": "2026-03-10T12:00:00Z"}]
+        """
+        return client.get_task_comments(task_id)
+
+    @mcp.tool
+    def add_task_comment(
+        task_id: Annotated[str, Field(description="The Todoist task ID to comment on")],
+        content: Annotated[str, Field(description="The comment text (supports Markdown)")],
+    ) -> dict:
+        """Add a comment to a Todoist task.
+
+        Creates a new comment on the specified task. Supports Markdown formatting.
+
+        Args:
+            task_id: The task ID to add the comment to.
+            content: The comment text.
+
+        Example:
+            add_task_comment(task_id="123", content="Waiting on reply from vendor")
+
+        Returns:
+            {"id": "c1", "content": "Waiting on reply from vendor", "task_id": "123",
+             "posted_at": "2026-03-19T10:00:00Z"}
+        """
+        return client.add_task_comment(task_id, content)
 
     @mcp.tool
     def create_todoist_label(

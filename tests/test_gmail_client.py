@@ -288,6 +288,25 @@ class TestReadState:
         assert result["modified"] == 2
 
 
+# --- Star / Important tests ---
+
+
+class TestStarImportant:
+    def test_star_messages(self):
+        client, svc = make_client()
+        svc.users().messages().batchModify().execute.return_value = None
+
+        result = client.star_messages(["msg_1", "msg_2"])
+        assert result["modified"] == 2
+
+    def test_mark_important(self):
+        client, svc = make_client()
+        svc.users().messages().batchModify().execute.return_value = None
+
+        result = client.mark_important(["msg_1"])
+        assert result["modified"] == 1
+
+
 # --- Compose / Send tests ---
 
 

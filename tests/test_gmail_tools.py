@@ -74,6 +74,8 @@ class TestRegistration:
             "create_gmail_label",
             "mark_gmail_read",
             "mark_gmail_unread",
+            "star_gmail_message",
+            "mark_gmail_important",
             "create_gmail_draft",
             "send_gmail",
             "send_gmail_draft",
@@ -195,6 +197,26 @@ class TestReadState:
         fn = get_tool_fn(mcp_server, "mark_gmail_unread")
         fn(message_ids=["m1"])
         mock_client.mark_unread.assert_called_once_with(["m1"])
+
+
+class TestStarImportant:
+    def test_star_gmail_message(self, mcp_server, mock_gmail):
+        mock_client, _, _ = register_with_env(mcp_server, mock_gmail)
+        mock_client.star_messages.return_value = {"modified": 2}
+
+        fn = get_tool_fn(mcp_server, "star_gmail_message")
+        result = fn(message_ids=["m1", "m2"])
+        mock_client.star_messages.assert_called_once_with(["m1", "m2"])
+        assert result["modified"] == 2
+
+    def test_mark_gmail_important(self, mcp_server, mock_gmail):
+        mock_client, _, _ = register_with_env(mcp_server, mock_gmail)
+        mock_client.mark_important.return_value = {"modified": 1}
+
+        fn = get_tool_fn(mcp_server, "mark_gmail_important")
+        result = fn(message_ids=["m1"])
+        mock_client.mark_important.assert_called_once_with(["m1"])
+        assert result["modified"] == 1
 
 
 class TestCompose:

@@ -336,6 +336,48 @@ def register_todoist_tools(mcp: FastMCP) -> None:
         """
         return client.batch_update(operations)
 
+    @mcp.tool(annotations={"readOnlyHint": True})
+    def get_task_comments(
+        task_id: Annotated[str, Field(description="The Todoist task ID to get comments for")],
+    ) -> list[dict]:
+        """Get all comments on a Todoist task.
+
+        Returns all comments attached to the specified task, ordered by creation time.
+
+        Args:
+            task_id: The task ID (from get_project_tasks or create_task).
+
+        Example:
+            get_task_comments(task_id="123")
+
+        Returns:
+            [{"id": "c1", "content": "Follow up tomorrow", "task_id": "123",
+              "posted_at": "2026-03-10T12:00:00Z"}]
+        """
+        return client.get_task_comments(task_id)
+
+    @mcp.tool
+    def add_task_comment(
+        task_id: Annotated[str, Field(description="The Todoist task ID to comment on")],
+        content: Annotated[str, Field(description="The comment text (supports Markdown)")],
+    ) -> dict:
+        """Add a comment to a Todoist task.
+
+        Creates a new comment on the specified task. Supports Markdown formatting.
+
+        Args:
+            task_id: The task ID to add the comment to.
+            content: The comment text.
+
+        Example:
+            add_task_comment(task_id="123", content="Waiting on reply from vendor")
+
+        Returns:
+            {"id": "c1", "content": "Waiting on reply from vendor", "task_id": "123",
+             "posted_at": "2026-03-19T10:00:00Z"}
+        """
+        return client.add_task_comment(task_id, content)
+
     @mcp.tool
     def create_todoist_label(
         name: Annotated[str, Field(description="Label name to create")],

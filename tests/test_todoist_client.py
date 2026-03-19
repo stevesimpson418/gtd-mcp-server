@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 from gtd_mcp.todoist.client import TodoistClient
@@ -334,6 +335,118 @@ class TestMoveTask:
 
         with pytest.raises(TodoistAPIError, match="Failed to move task"):
             client.move_task("task_1", "Active")
+
+
+# --- get_completed_tasks tests ---
+
+
+class TestGetCompletedTasks:
+    def test_get_completed_tasks_default(self):
+        client, mock_api = make_client()
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "items": [
+                {
+                    "task_id": "t1",
+                    "content": "Buy milk",
+                    "completed_at": "2026-03-13T10:30:00Z",
+                    "project_id": "proj_inbox",
+                },
+                {
+                    "task_id": "t2",
+                    "content": "Fix bug",
+                    "completed_at": "2026-03-14T08:00:00Z",
+                    "project_id": "proj_active",
+                },
+            ]
+        }
+        mock_response.raise_for_status = MagicMock()
+        client._http.post = MagicMock(return_value=mock_response)
+
+        result = client.get_completed_tasks()
+        assert len(result) == 2
+        assert result[0]["task_id"] == "t1"
+        assert result[0]["content"] == "Buy milk"
+        assert result[0]["completed_at"] == "2026-03-13T10:30:00Z"
+
+        call_kwargs = client._http.post.call_args
+        assert "completed/get_all" in call_kwargs[0][0]
+        assert call_kwargs[1]["json"]["limit"] == 50
+
+    def test_get_completed_tasks_with_since(self):
+        client, mock_api = make_client()
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"items": []}
+        mock_response.raise_for_status = MagicMock()
+        client._http.post = MagicMock(return_value=mock_response)
+
+        client.get_completed_tasks(since="2026-03-12")
+
+        call_kwargs = client._http.post.call_args
+        assert call_kwargs[1]["json"]["since"] == "2026-03-12T00:00:00"
+
+    def test_get_completed_tasks_with_since_datetime(self):
+        client, mock_api = make_client()
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"items": []}
+        mock_response.raise_for_status = MagicMock()
+        client._http.post = MagicMock(return_value=mock_response)
+
+        client.get_completed_tasks(since="2026-03-12T09:00:00")
+
+        call_kwargs = client._http.post.call_args
+        # Should not append T00:00:00 if already contains T
+        assert call_kwargs[1]["json"]["since"] == "2026-03-12T09:00:00"
+
+    def test_get_completed_tasks_with_project(self):
+        client, mock_api = make_client()
+        setup_projects(mock_api)
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"items": []}
+        mock_response.raise_for_status = MagicMock()
+        client._http.post = MagicMock(return_value=mock_response)
+
+        client.get_completed_tasks(project="Active")
+
+        call_kwargs = client._http.post.call_args
+        assert call_kwargs[1]["json"]["project_id"] == "proj_active"
+
+    def test_get_completed_tasks_with_limit(self):
+        client, mock_api = make_client()
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"items": []}
+        mock_response.raise_for_status = MagicMock()
+        client._http.post = MagicMock(return_value=mock_response)
+
+        client.get_completed_tasks(limit=10)
+
+        call_kwargs = client._http.post.call_args
+        assert call_kwargs[1]["json"]["limit"] == 10
+
+    def test_get_completed_tasks_invalid_project(self):
+        client, mock_api = make_client()
+        setup_projects(mock_api)
+
+        with pytest.raises(ValueError, match="not found"):
+            client.get_completed_tasks(project="Nonexistent")
+
+    def test_get_completed_tasks_http_error(self):
+        client, mock_api = make_client()
+        client._http.post = MagicMock(side_effect=httpx.HTTPError("Connection failed"))
+
+        with pytest.raises(TodoistAPIError, match="Failed to fetch completed tasks"):
+            client.get_completed_tasks()
+
+    def test_get_completed_tasks_http_status_error(self):
+        client, mock_api = make_client()
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+        mock_response.text = "Forbidden"
+        error = httpx.HTTPStatusError("Forbidden", request=MagicMock(), response=mock_response)
+        client._http.post = MagicMock(side_effect=error)
+
+        with pytest.raises(TodoistAPIError, match="Failed to fetch completed tasks"):
+            client.get_completed_tasks()
 
 
 # --- Label tests ---

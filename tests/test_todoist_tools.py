@@ -63,6 +63,7 @@ class TestToolRegistration:
             "list_todoist_projects",
             "get_project_tasks",
             "list_todoist_labels",
+            "get_completed_tasks",
             "create_task",
             "update_task",
             "move_task",
@@ -123,6 +124,34 @@ class TestListLabels:
 
         mock_instance.get_labels.assert_called_once()
         assert result == [{"id": "l1", "name": "Home"}]
+
+
+class TestGetCompletedTasks:
+    def test_delegates_with_defaults(self, mcp_server, mock_client):
+        mock_instance, _ = register_with_token(mcp_server, mock_client)
+        mock_instance.get_completed_tasks.return_value = [
+            {"task_id": "t1", "content": "Done", "completed_at": "2026-03-13T10:00:00Z"}
+        ]
+
+        fn = get_tool_fn(mcp_server, "get_completed_tasks")
+        result = fn()
+
+        mock_instance.get_completed_tasks.assert_called_once_with(
+            since=None, project=None, limit=50
+        )
+        assert len(result) == 1
+        assert result[0]["task_id"] == "t1"
+
+    def test_delegates_with_all_params(self, mcp_server, mock_client):
+        mock_instance, _ = register_with_token(mcp_server, mock_client)
+        mock_instance.get_completed_tasks.return_value = []
+
+        fn = get_tool_fn(mcp_server, "get_completed_tasks")
+        fn(since="2026-03-12", project="Active", limit=20)
+
+        mock_instance.get_completed_tasks.assert_called_once_with(
+            since="2026-03-12", project="Active", limit=20
+        )
 
 
 class TestCreateTask:

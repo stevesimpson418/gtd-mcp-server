@@ -13,6 +13,7 @@ from gtd_mcp.todoist.exceptions import TodoistAPIError
 logger = logging.getLogger(__name__)
 
 SYNC_API_URL = "https://api.todoist.com/api/v1/sync"
+SYNC_V9_BASE_URL = "https://api.todoist.com/sync/v9"
 
 
 class TodoistClient:
@@ -29,6 +30,7 @@ class TodoistClient:
             headers={"Authorization": f"Bearer {api_token}"},
             timeout=30.0,
         )
+        self._token = api_token
         self._projects_cache: dict[str, str] | None = None
 
     def _get_projects_map(self) -> dict[str, str]:
@@ -218,6 +220,63 @@ class TodoistClient:
             return self._comment_to_dict(comment)
         except Exception as e:
             raise TodoistAPIError(f"Failed to add comment to task {task_id}: {e}") from e
+
+    # --- Completed tasks (Sync API v9) ---
+
+    def get_completed_tasks(
+        self,
+        since: str | None = None,
+        project: str | None = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        """Fetch completed tasks from the Todoist Sync API.
+
+        Args:
+            since: ISO date string — only return tasks completed after this date.
+            project: Project name (case-insensitive) to filter by.
+            limit: Maximum number of results to return (default 50).
+
+        Returns:
+            List of dicts with task_id, content, completed_at, project_id.
+        """
+        params: dict = {"limit": limit}
+
+        if since is not None:
+            # Todoist expects ISO datetime, append time if only date given
+            if "T" not in since:
+                since = f"{since}T00:00:00"
+            params["since"] = since
+
+        if project is not None:
+            project_id = self._resolve_project(project)
+            params["project_id"] = project_id
+
+        try:
+            response = self._http.post(
+                f"{SYNC_V9_BASE_URL}/completed/get_all",
+                headers={"Authorization": f"Bearer {self._token}"},
+                json=params,
+            )
+            response.raise_for_status()
+            data = response.json()
+        except httpx.HTTPStatusError as e:
+            raise TodoistAPIError(
+                f"Failed to fetch completed tasks: {e.response.status_code}: {e.response.text}",
+                status_code=e.response.status_code,
+            ) from e
+        except httpx.HTTPError as e:
+            raise TodoistAPIError(f"Failed to fetch completed tasks: {e}") from e
+
+        items = data.get("items", [])
+        return [
+            {
+                "task_id": item.get("task_id") or item.get("id"),
+                "content": item.get("content", ""),
+                "completed_at": item.get("completed_at") or item.get("completed_date"),
+                "project_id": item.get("project_id", ""),
+            }
+            for item in items
+        ]
 
     # --- Batch operations (Sync API v1) ---
 

@@ -86,6 +86,56 @@ def register_todoist_tools(mcp: FastMCP) -> None:
         """
         return client.get_labels()
 
+    @mcp.tool(annotations={"readOnlyHint": True})
+    def get_completed_tasks(
+        since: Annotated[
+            str | None,
+            Field(
+                default=None,
+                description=(
+                    "ISO date (e.g. '2026-03-12') — only return tasks completed after this date. "
+                    "Useful for weekly review metrics."
+                ),
+            ),
+        ] = None,
+        project: Annotated[
+            str | None,
+            Field(
+                default=None,
+                description=(
+                    "Project name to filter by (case-insensitive). "
+                    "Use list_todoist_projects() for valid names."
+                ),
+            ),
+        ] = None,
+        limit: Annotated[
+            int,
+            Field(
+                default=50,
+                description="Maximum number of completed tasks to return.",
+            ),
+        ] = 50,
+    ) -> list[dict]:
+        """Get completed tasks from Todoist.
+
+        Returns recently completed tasks, optionally filtered by date and project.
+        Ideal for weekly review metrics — see how many tasks were completed and when.
+
+        Args:
+            since: ISO date to filter from, e.g. "2026-03-12".
+            project: Filter to a specific project name.
+            limit: Max results (default 50).
+
+        Example:
+            get_completed_tasks(since="2026-03-12")
+            get_completed_tasks(project="Active", limit=20)
+
+        Returns:
+            [{"task_id": "123", "content": "Buy milk",
+              "completed_at": "2026-03-13T10:30:00Z", "project_id": "456"}, ...]
+        """
+        return client.get_completed_tasks(since=since, project=project, limit=limit)
+
     @mcp.tool
     def create_task(
         content: Annotated[str, Field(description="The task title/content")],

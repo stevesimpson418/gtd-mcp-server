@@ -1,5 +1,10 @@
 # GTD MCP Server
 
+[![CI](https://github.com/stevesimpson418/gtd-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/stevesimpson418/gtd-mcp-server/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/stevesimpson418/gtd-mcp-server/graph/badge.svg)](https://codecov.io/gh/stevesimpson418/gtd-mcp-server)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A local [MCP](https://modelcontextprotocol.io/) server that gives Claude native, tool-level access to **Todoist** and **Gmail** for GTD (Getting Things Done) workflows. Runs locally via stdio transport — all tokens and credentials stay on your machine.
 
 ## Prerequisites

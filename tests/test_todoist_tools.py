@@ -163,6 +163,41 @@ class TestCreateTask:
             description="Notes",
         )
 
+    def test_delegates_with_multiple_labels(self, mcp_server, mock_client):
+        mock_instance, _ = register_with_token(mcp_server, mock_client)
+        mock_instance.create_task.return_value = {
+            "id": "t1",
+            "content": "Buy groceries",
+            "labels": ["Shopping", "Errands"],
+        }
+
+        fn = get_tool_fn(mcp_server, "create_task")
+        result = fn(content="Buy groceries", labels=["Shopping", "Errands"])
+
+        mock_instance.create_task.assert_called_once_with(
+            content="Buy groceries",
+            project="Inbox",
+            labels=["Shopping", "Errands"],
+            due_date=None,
+            description=None,
+        )
+        assert result["labels"] == ["Shopping", "Errands"]
+
+    def test_coerces_single_string_label_to_list(self, mcp_server, mock_client):
+        mock_instance, _ = register_with_token(mcp_server, mock_client)
+        mock_instance.create_task.return_value = {"id": "t1", "content": "Task"}
+
+        fn = get_tool_fn(mcp_server, "create_task")
+        fn(content="Task", labels="Shopping")
+
+        mock_instance.create_task.assert_called_once_with(
+            content="Task",
+            project="Inbox",
+            labels=["Shopping"],
+            due_date=None,
+            description=None,
+        )
+
 
 class TestUpdateTask:
     def test_delegates_partial_update(self, mcp_server, mock_client):

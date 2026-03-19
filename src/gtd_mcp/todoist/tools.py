@@ -14,6 +14,13 @@ from gtd_mcp.todoist.client import TodoistClient
 logger = logging.getLogger(__name__)
 
 
+def _ensure_list(v: str | list[str]) -> list[str]:
+    """Coerce a single string into a one-element list for label params."""
+    if isinstance(v, str):
+        return [v]
+    return v
+
+
 def register_todoist_tools(mcp: FastMCP) -> None:
     """Register all Todoist tools with the MCP server.
 
@@ -100,7 +107,7 @@ def register_todoist_tools(mcp: FastMCP) -> None:
             ),
         ] = "Inbox",
         labels: Annotated[
-            list[str],
+            str | list[str],
             Field(
                 default=[],
                 description=(
@@ -132,6 +139,7 @@ def register_todoist_tools(mcp: FastMCP) -> None:
             content: The task title, e.g. "Buy groceries".
             project: Target project name. Defaults to "Inbox".
             labels: List of label names to apply, e.g. ["Shopping", "Home"].
+                A single string is also accepted and will be wrapped in a list.
             due_date: When it's due — "tomorrow", "next Friday", or "2026-03-15".
             description: Additional notes or details.
 
@@ -142,10 +150,11 @@ def register_todoist_tools(mcp: FastMCP) -> None:
         Returns:
             {"id": "123", "content": "Buy groceries", "labels": ["Shopping"], ...}
         """
+        normalized_labels = _ensure_list(labels) if labels else None
         return client.create_task(
             content=content,
             project=project,
-            labels=labels or None,
+            labels=normalized_labels,
             due_date=due_date or None,
             description=description or None,
         )
@@ -161,7 +170,7 @@ def register_todoist_tools(mcp: FastMCP) -> None:
             ),
         ] = "",
         labels: Annotated[
-            list[str],
+            str | list[str],
             Field(
                 default=[],
                 description=(
@@ -207,10 +216,11 @@ def register_todoist_tools(mcp: FastMCP) -> None:
         Returns:
             {"id": "123", "content": "Buy organic groceries", ...}
         """
+        normalized_labels = _ensure_list(labels) if labels else None
         return client.update_task(
             task_id=task_id,
             content=content or None,
-            labels=labels or None,
+            labels=normalized_labels,
             due_date=due_date or None,
             description=description or None,
         )

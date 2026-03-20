@@ -466,6 +466,73 @@ class TestExtractBody:
         assert GmailClient._extract_body({}) == ""
 
 
+# --- Get header edge case ---
+
+
+class TestGetHeader:
+    def test_missing_header_returns_empty(self):
+        result = GmailClient._get_header([{"name": "Subject", "value": "Hi"}], "X-Not-Present")
+        assert result == ""
+
+
+# --- List labels error ---
+
+
+class TestListLabelsError:
+    def test_api_error(self):
+        client, svc = make_client()
+        svc.users().labels().list().execute.side_effect = Exception("Fail")
+
+        with pytest.raises(GmailAPIError, match="Failed to list labels"):
+            client.list_labels()
+
+
+# --- Create label edge cases ---
+
+
+class TestCreateLabelExtended:
+    def test_create_label_with_colors(self):
+        client, svc = make_client()
+        svc.users().labels().create().execute.return_value = {
+            "id": "Label_color",
+            "name": "Urgent",
+        }
+
+        result = client.create_label("Urgent", text_color="#ffffff", background_color="#cc3a21")
+        assert result == {"id": "Label_color", "name": "Urgent"}
+
+    def test_create_label_api_error(self):
+        client, svc = make_client()
+        svc.users().labels().create().execute.side_effect = Exception("Fail")
+
+        with pytest.raises(GmailAPIError, match="Failed to create label"):
+            client.create_label("Bad")
+
+
+# --- Modify messages error ---
+
+
+class TestModifyMessagesError:
+    def test_api_error(self):
+        client, svc = make_client()
+        svc.users().messages().batchModify().execute.side_effect = Exception("Fail")
+
+        with pytest.raises(GmailAPIError, match="Failed to modify messages"):
+            client.mark_read(["msg_1"])
+
+
+# --- Trash outer exception ---
+
+
+class TestTrashOuterError:
+    def test_non_iterable_message_ids(self):
+        """Trigger the outer except in trash_messages."""
+        client, svc = make_client()
+        # Passing a non-iterable triggers the outer try/except
+        with pytest.raises(GmailAPIError, match="Failed to trash messages"):
+            client.trash_messages(None)
+
+
 # --- Attachment helpers ---
 
 
@@ -616,6 +683,13 @@ class TestListAttachments:
         result = client.list_attachments("msg_att")
         assert len(result) == 1
         assert result[0]["filename"] == "report.pdf"
+
+    def test_api_error(self):
+        client, svc = make_client()
+        svc.users().messages().get().execute.side_effect = Exception("Fail")
+
+        with pytest.raises(GmailAPIError, match="Failed to list attachments"):
+            client.list_attachments("bad_id")
 
 
 # --- Get attachment tests ---

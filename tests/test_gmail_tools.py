@@ -94,6 +94,38 @@ class TestRegistration:
 
         assert len(get_tool_names(mcp_server)) == 0
 
+    def test_no_tools_when_credentials_not_found(self, mcp_server):
+        with (
+            patch("gtd_mcp.gmail.tools.GmailAuth") as mock_auth_cls,
+            patch.dict(
+                os.environ,
+                {
+                    "GMAIL_CREDENTIALS_PATH": "/fake/creds.json",
+                    "GMAIL_TOKEN_PATH": "/fake/token.json",
+                },
+            ),
+        ):
+            mock_auth_cls.return_value.get_service.side_effect = FileNotFoundError("no creds")
+            register_gmail_tools(mcp_server)
+
+        assert len(get_tool_names(mcp_server)) == 0
+
+    def test_no_tools_when_auth_fails(self, mcp_server):
+        with (
+            patch("gtd_mcp.gmail.tools.GmailAuth") as mock_auth_cls,
+            patch.dict(
+                os.environ,
+                {
+                    "GMAIL_CREDENTIALS_PATH": "/fake/creds.json",
+                    "GMAIL_TOKEN_PATH": "/fake/token.json",
+                },
+            ),
+        ):
+            mock_auth_cls.return_value.get_service.side_effect = RuntimeError("auth broke")
+            register_gmail_tools(mcp_server)
+
+        assert len(get_tool_names(mcp_server)) == 0
+
 
 # --- Delegation ---
 
@@ -131,6 +163,17 @@ class TestReadThread:
         fn(thread_id="t1")
 
         mock_client.read_thread.assert_called_once_with("t1")
+
+
+class TestListLabels:
+    def test_delegates(self, mcp_server, mock_gmail):
+        mock_client, _, _ = register_with_env(mcp_server, mock_gmail)
+        mock_client.list_labels.return_value = [{"id": "INBOX", "name": "INBOX"}]
+
+        fn = get_tool_fn(mcp_server, "list_gmail_labels")
+        result = fn()
+        mock_client.list_labels.assert_called_once()
+        assert result[0]["name"] == "INBOX"
 
 
 class TestArchive:

@@ -7,7 +7,6 @@ import os
 from typing import Annotated
 
 from fastmcp import FastMCP
-from fastmcp.resources import BinaryResource
 from pydantic import Field
 
 from gtd_mcp.gmail.auth import GmailAuth
@@ -454,7 +453,7 @@ def register_gmail_tools(mcp: FastMCP) -> None:
         """List attachments on a Gmail message.
 
         Returns metadata for each attachment (id, filename, mime_type, size).
-        Use with read_gmail_attachment() or download_gmail_attachment().
+        Use with read_gmail_attachment() to fetch content.
 
         Args:
             message_id: The message ID from search_gmail().
@@ -497,42 +496,6 @@ def register_gmail_tools(mcp: FastMCP) -> None:
              "encoding": "text", "content": "name,value\\nalice,42"}
         """
         return client.read_attachment_content(message_id, attachment_id, filename, mime_type)
-
-    @mcp.tool
-    def download_gmail_attachment(
-        message_id: Annotated[str, Field(description="The Gmail message ID.")],
-        attachment_id: Annotated[
-            str, Field(description="The attachment ID from list_gmail_attachments().")
-        ],
-        filename: Annotated[str, Field(description="Original filename of the attachment.")],
-    ) -> dict:
-        """Download a Gmail attachment, returning a resource URI to fetch it.
-
-        The attachment content is registered as an MCP resource. Use the
-        returned resource_uri to read the binary content via the MCP protocol.
-
-        Args:
-            message_id: The message ID.
-            attachment_id: The attachment ID from list_gmail_attachments().
-            filename: The attachment filename.
-
-        Example:
-            download_gmail_attachment(message_id="msg1", attachment_id="att1",
-                                     filename="report.pdf")
-
-        Returns:
-            {"filename": "report.pdf", "size": 12345,
-             "resource_uri": "attachment://gmail/msg1/report.pdf"}
-        """
-        result = client.download_attachment(message_id, attachment_id, filename)
-        uri = f"attachment://gmail/{message_id}/{result['filename']}"
-        resource = BinaryResource(uri=uri, data=result["data"])
-        mcp.add_resource(resource)
-        return {
-            "filename": result["filename"],
-            "size": result["size"],
-            "resource_uri": uri,
-        }
 
     # --- Delete ---
 

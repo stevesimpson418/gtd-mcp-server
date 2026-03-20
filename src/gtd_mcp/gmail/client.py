@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import logging
 from email.mime.text import MIMEText
-from pathlib import Path
 
 from gtd_mcp.gmail.exceptions import GmailAPIError
 
@@ -136,12 +135,6 @@ class GmailClient:
             raise GmailAPIError(
                 f"Failed to get attachment {attachment_id} from {message_id}: {e}"
             ) from e
-
-    def download_attachment(self, message_id: str, attachment_id: str, filename: str) -> dict:
-        """Download an attachment and return raw bytes."""
-        raw_bytes = self.get_attachment(message_id, attachment_id)
-        safe_filename = Path(filename).name
-        return {"filename": safe_filename, "data": raw_bytes, "size": len(raw_bytes)}
 
     _TEXT_MIME_TYPES = frozenset({"application/json", "application/csv", "application/xml"})
 

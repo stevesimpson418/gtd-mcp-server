@@ -96,52 +96,44 @@ def register_todoist_tools(mcp: FastMCP) -> None:
     @mcp.tool(annotations={"readOnlyHint": True})
     def get_completed_tasks(
         since: Annotated[
-            str | None,
+            str,
             Field(
-                default=None,
                 description=(
-                    "ISO date (e.g. '2026-03-12') — only return tasks completed after this date. "
-                    "Useful for weekly review metrics."
+                    "ISO date or datetime for the start of the range (inclusive). "
+                    "e.g. '2026-03-12' or '2026-03-12T00:00:00'. "
+                    "Range must be within 3 months."
                 ),
             ),
-        ] = None,
-        project: Annotated[
-            str | None,
+        ],
+        until: Annotated[
+            str,
             Field(
-                default=None,
                 description=(
-                    "Project name to filter by (case-insensitive). "
-                    "Use list_todoist_projects() for valid names."
+                    "ISO date or datetime for the end of the range (inclusive). "
+                    "e.g. '2026-03-19' or '2026-03-19T23:59:59'."
                 ),
             ),
-        ] = None,
+        ],
         limit: Annotated[
             int,
             Field(
                 default=50,
-                description="Maximum number of completed tasks to return.",
+                description="Maximum number of completed tasks per page (1-200).",
             ),
         ] = 50,
     ) -> list[dict]:
-        """Get completed tasks from Todoist.
+        """Get completed tasks from Todoist within a date range.
 
-        Returns recently completed tasks, optionally filtered by date and project.
+        Returns tasks completed between `since` and `until` (inclusive).
         Ideal for weekly review metrics — see how many tasks were completed and when.
 
-        Args:
-            since: ISO date to filter from, e.g. "2026-03-12".
-            project: Filter to a specific project name.
-            limit: Max results (default 50).
-
         Example:
-            get_completed_tasks(since="2026-03-12")
-            get_completed_tasks(project="Active", limit=20)
+            get_completed_tasks(since="2026-03-12", until="2026-03-19")
 
         Returns:
-            [{"task_id": "123", "content": "Buy milk",
-              "completed_at": "2026-03-13T10:30:00Z", "project_id": "456"}, ...]
+            [{"id": "123", "content": "Buy milk", "project_id": "456", ...}, ...]
         """
-        return client.get_completed_tasks(since=since, project=project, limit=limit)
+        return client.get_completed_tasks(since=since, until=until, limit=limit)
 
     @mcp.tool
     def create_task(

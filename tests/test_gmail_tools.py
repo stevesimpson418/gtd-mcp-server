@@ -82,7 +82,6 @@ class TestRegistration:
             "trash_gmail_messages",
             "list_gmail_attachments",
             "read_gmail_attachment",
-            "download_gmail_attachment",
         }
         assert get_tool_names(mcp_server) == expected
 
@@ -340,30 +339,3 @@ class TestReadAttachmentTool:
             "msg_1", "att_1", "data.csv", "text/csv"
         )
         assert result["encoding"] == "text"
-
-
-class TestDownloadAttachmentTool:
-    def test_delegates_and_registers_resource(self, mcp_server, mock_gmail):
-        mock_client, _, _ = register_with_env(mcp_server, mock_gmail)
-        mock_client.download_attachment.return_value = {
-            "filename": "report.pdf",
-            "data": b"pdf-bytes",
-            "size": 9,
-        }
-
-        fn = get_tool_fn(mcp_server, "download_gmail_attachment")
-        result = fn(
-            message_id="msg_1",
-            attachment_id="att_1",
-            filename="report.pdf",
-        )
-        mock_client.download_attachment.assert_called_once_with("msg_1", "att_1", "report.pdf")
-        assert result["filename"] == "report.pdf"
-        assert result["size"] == 9
-        assert result["resource_uri"] == "attachment://gmail/msg_1/report.pdf"
-        assert "path" not in result
-
-        # Verify resource was registered
-        resources = asyncio.new_event_loop().run_until_complete(mcp_server.list_resources())
-        uris = [str(r.uri) for r in resources]
-        assert "attachment://gmail/msg_1/report.pdf" in uris

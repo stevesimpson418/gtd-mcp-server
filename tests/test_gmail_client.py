@@ -778,34 +778,6 @@ class TestReadAttachmentContent:
 # --- Download attachment tests ---
 
 
-class TestDownloadAttachment:
-    def test_returns_bytes_and_metadata(self):
-        client, svc = make_client()
-        file_data = b"file contents"
-        encoded = base64.urlsafe_b64encode(file_data).decode()
-        svc.users().messages().attachments().get().execute.return_value = {
-            "data": encoded,
-            "size": len(file_data),
-        }
-
-        result = client.download_attachment("msg_1", "att_1", "report.pdf")
-        assert result["filename"] == "report.pdf"
-        assert result["data"] == file_data
-        assert result["size"] == len(file_data)
-
-    def test_path_traversal_sanitized(self):
-        client, svc = make_client()
-        file_data = b"data"
-        encoded = base64.urlsafe_b64encode(file_data).decode()
-        svc.users().messages().attachments().get().execute.return_value = {
-            "data": encoded,
-            "size": len(file_data),
-        }
-
-        result = client.download_attachment("msg_1", "att_1", "../../etc/passwd")
-        assert result["filename"] == "passwd"
-
-
 # --- _parse_full_message attachment fields ---
 
 

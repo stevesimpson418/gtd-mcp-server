@@ -137,19 +137,11 @@ class GmailClient:
                 f"Failed to get attachment {attachment_id} from {message_id}: {e}"
             ) from e
 
-    def download_attachment(
-        self, message_id: str, attachment_id: str, filename: str, download_path: str
-    ) -> dict:
-        """Download an attachment to disk."""
-        download_dir = Path(download_path)
-        if not download_dir.is_dir():
-            raise ValueError(f"'{download_path}' is not a valid directory")
-
+    def download_attachment(self, message_id: str, attachment_id: str, filename: str) -> dict:
+        """Download an attachment and return raw bytes."""
         raw_bytes = self.get_attachment(message_id, attachment_id)
         safe_filename = Path(filename).name
-        file_path = download_dir / safe_filename
-        file_path.write_bytes(raw_bytes)
-        return {"filename": safe_filename, "path": str(file_path), "size": len(raw_bytes)}
+        return {"filename": safe_filename, "data": raw_bytes, "size": len(raw_bytes)}
 
     _TEXT_MIME_TYPES = frozenset({"application/json", "application/csv", "application/xml"})
 

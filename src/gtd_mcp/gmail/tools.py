@@ -444,6 +444,89 @@ def register_gmail_tools(mcp: FastMCP) -> None:
         """
         return client.send_draft(draft_id)
 
+    # --- Attachments ---
+
+    @mcp.tool(annotations={"readOnlyHint": True})
+    def list_gmail_attachments(
+        message_id: Annotated[str, Field(description="The Gmail message ID.")],
+    ) -> list[dict]:
+        """List attachments on a Gmail message.
+
+        Returns metadata for each attachment (id, filename, mime_type, size).
+        Use with read_gmail_attachment() or download_gmail_attachment().
+
+        Args:
+            message_id: The message ID from search_gmail().
+
+        Example:
+            list_gmail_attachments(message_id="18e2f3a4b5c6d7e8")
+
+        Returns:
+            [{"attachment_id": "att_1", "filename": "report.pdf",
+              "mime_type": "application/pdf", "size": 12345, "part_id": "2"}]
+        """
+        return client.list_attachments(message_id)
+
+    @mcp.tool(annotations={"readOnlyHint": True})
+    def read_gmail_attachment(
+        message_id: Annotated[str, Field(description="The Gmail message ID.")],
+        attachment_id: Annotated[
+            str, Field(description="The attachment ID from list_gmail_attachments().")
+        ],
+        filename: Annotated[str, Field(description="Original filename of the attachment.")],
+        mime_type: Annotated[str, Field(description="MIME type of the attachment.")],
+    ) -> dict:
+        """Read attachment content inline.
+
+        Text files (text/*, JSON, CSV, XML) are returned as decoded text.
+        Binary files (PDF, images, etc.) are returned as base64-encoded strings.
+
+        Args:
+            message_id: The message ID.
+            attachment_id: The attachment ID from list_gmail_attachments().
+            filename: The attachment filename.
+            mime_type: The attachment MIME type.
+
+        Example:
+            read_gmail_attachment(message_id="msg1", attachment_id="att1",
+                                 filename="data.csv", mime_type="text/csv")
+
+        Returns:
+            {"filename": "data.csv", "mime_type": "text/csv", "size": 1234,
+             "encoding": "text", "content": "name,value\\nalice,42"}
+        """
+        return client.read_attachment_content(message_id, attachment_id, filename, mime_type)
+
+    @mcp.tool
+    def download_gmail_attachment(
+        message_id: Annotated[str, Field(description="The Gmail message ID.")],
+        attachment_id: Annotated[
+            str, Field(description="The attachment ID from list_gmail_attachments().")
+        ],
+        filename: Annotated[str, Field(description="Original filename of the attachment.")],
+        download_path: Annotated[
+            str, Field(description="Directory path where the file should be saved.")
+        ],
+    ) -> dict:
+        """Download a Gmail attachment to disk.
+
+        Saves the attachment file to the specified directory.
+
+        Args:
+            message_id: The message ID.
+            attachment_id: The attachment ID from list_gmail_attachments().
+            filename: The attachment filename.
+            download_path: Local directory to save the file.
+
+        Example:
+            download_gmail_attachment(message_id="msg1", attachment_id="att1",
+                                     filename="report.pdf", download_path="/tmp")
+
+        Returns:
+            {"filename": "report.pdf", "path": "/tmp/report.pdf", "size": 12345}
+        """
+        return client.download_attachment(message_id, attachment_id, filename, download_path)
+
     # --- Delete ---
 
     @mcp.tool(annotations={"destructiveHint": True})

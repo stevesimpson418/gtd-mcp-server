@@ -370,7 +370,7 @@ class TestGetCompletedTasks:
         assert result[0]["completed_at"] == "2026-03-13T10:30:00Z"
 
         call_kwargs = client._http.post.call_args
-        assert "completed/get_all" in call_kwargs[0][0]
+        assert call_kwargs[0][0] == "https://api.todoist.com/api/v1/completed/get_all"
         assert call_kwargs[1]["json"]["limit"] == 50
 
     def test_get_completed_tasks_with_since(self):

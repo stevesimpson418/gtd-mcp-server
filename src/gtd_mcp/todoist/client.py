@@ -1,4 +1,4 @@
-"""Todoist API client wrapping REST v2 and Sync API v1."""
+"""Todoist API client wrapping REST v2, Sync API v1, and REST API v1."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from gtd_mcp.todoist.exceptions import TodoistAPIError
 logger = logging.getLogger(__name__)
 
 SYNC_API_URL = "https://api.todoist.com/api/v1/sync"
-SYNC_V9_BASE_URL = "https://api.todoist.com/sync/v9"
+REST_V1_BASE_URL = "https://api.todoist.com/api/v1"
 
 
 class TodoistClient:
@@ -221,7 +221,7 @@ class TodoistClient:
         except Exception as e:
             raise TodoistAPIError(f"Failed to add comment to task {task_id}: {e}") from e
 
-    # --- Completed tasks (Sync API v9) ---
+    # --- Completed tasks (REST API v1) ---
 
     def get_completed_tasks(
         self,
@@ -229,7 +229,7 @@ class TodoistClient:
         project: str | None = None,
         limit: int = 50,
     ) -> list[dict]:
-        """Fetch completed tasks from the Todoist Sync API.
+        """Fetch completed tasks from the Todoist REST API v1.
 
         Args:
             since: ISO date string — only return tasks completed after this date.
@@ -253,7 +253,7 @@ class TodoistClient:
 
         try:
             response = self._http.post(
-                f"{SYNC_V9_BASE_URL}/completed/get_all",
+                f"{REST_V1_BASE_URL}/completed/get_all",
                 headers={"Authorization": f"Bearer {self._token}"},
                 json=params,
             )

@@ -1,4 +1,4 @@
-"""Todoist API client wrapping REST v2, Sync API v1, and REST API v1."""
+"""Todoist API client wrapping REST v2 and Sync API v1."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from gtd_mcp.todoist.exceptions import TodoistAPIError
 logger = logging.getLogger(__name__)
 
 SYNC_API_URL = "https://api.todoist.com/api/v1/sync"
-REST_V1_BASE_URL = "https://api.todoist.com/api/v1"
 
 
 class TodoistClient:
@@ -225,58 +224,50 @@ class TodoistClient:
 
     def get_completed_tasks(
         self,
-        since: str | None = None,
-        project: str | None = None,
+        since: str,
+        until: str,
         limit: int = 50,
     ) -> list[dict]:
-        """Fetch completed tasks from the Todoist REST API v1.
+        """Fetch completed tasks via the Todoist REST API v1.
+
+        Uses the SDK's get_completed_tasks_by_completion_date method which calls
+        /api/v1/tasks/completed/by_completion_date.
 
         Args:
-            since: ISO date string — only return tasks completed after this date.
-            project: Project name (case-insensitive) to filter by.
-            limit: Maximum number of results to return (default 50).
+            since: ISO date or datetime string — start of range (inclusive).
+            until: ISO date or datetime string — end of range (inclusive).
+            limit: Maximum number of tasks per page (default 50, max 200).
 
         Returns:
-            List of dicts with task_id, content, completed_at, project_id.
+            List of dicts with id, content, completed_at, project_id.
         """
-        params: dict = {"limit": limit}
+        from datetime import datetime, timezone
 
-        if since is not None:
-            # Todoist expects ISO datetime, append time if only date given
-            if "T" not in since:
-                since = f"{since}T00:00:00"
-            params["since"] = since
+        def _parse_dt(value: str) -> datetime:
+            """Parse an ISO date or datetime string into a timezone-aware datetime."""
+            if "T" in value:
+                dt = datetime.fromisoformat(value)
+            else:
+                dt = datetime.fromisoformat(f"{value}T00:00:00")
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
 
-        if project is not None:
-            project_id = self._resolve_project(project)
-            params["project_id"] = project_id
+        since_dt = _parse_dt(since)
+        until_dt = _parse_dt(until)
 
         try:
-            response = self._http.post(
-                f"{REST_V1_BASE_URL}/completed/get_all",
-                headers={"Authorization": f"Bearer {self._token}"},
-                json=params,
-            )
-            response.raise_for_status()
-            data = response.json()
-        except httpx.HTTPStatusError as e:
-            raise TodoistAPIError(
-                f"Failed to fetch completed tasks: {e.response.status_code}: {e.response.text}",
-                status_code=e.response.status_code,
-            ) from e
-        except httpx.HTTPError as e:
+            tasks = []
+            for page in self._api.get_completed_tasks_by_completion_date(
+                since=since_dt,
+                until=until_dt,
+                limit=limit,
+            ):
+                for task in page:
+                    tasks.append(self._task_to_dict(task))
+            return tasks
+        except Exception as e:
             raise TodoistAPIError(f"Failed to fetch completed tasks: {e}") from e
-
-        items = data.get("items", [])
-        return [
-            {
-                "task_id": item.get("task_id") or item.get("id"),
-                "content": item.get("content", ""),
-                "completed_at": item.get("completed_at") or item.get("completed_date"),
-                "project_id": item.get("project_id", ""),
-            }
-            for item in items
-        ]
 
     # --- Batch operations (Sync API v1) ---
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -780,7 +779,7 @@ class TestReadAttachmentContent:
 
 
 class TestDownloadAttachment:
-    def test_saves_file(self, tmp_path):
+    def test_returns_bytes_and_metadata(self):
         client, svc = make_client()
         file_data = b"file contents"
         encoded = base64.urlsafe_b64encode(file_data).decode()
@@ -789,19 +788,12 @@ class TestDownloadAttachment:
             "size": len(file_data),
         }
 
-        result = client.download_attachment("msg_1", "att_1", "report.pdf", str(tmp_path))
+        result = client.download_attachment("msg_1", "att_1", "report.pdf")
         assert result["filename"] == "report.pdf"
+        assert result["data"] == file_data
         assert result["size"] == len(file_data)
-        saved = Path(result["path"])
-        assert saved.exists()
-        assert saved.read_bytes() == file_data
 
-    def test_invalid_dir_raises(self):
-        client, _ = make_client()
-        with pytest.raises(ValueError, match="not a valid directory"):
-            client.download_attachment("msg_1", "att_1", "file.pdf", "/nonexistent/path")
-
-    def test_path_traversal_sanitized(self, tmp_path):
+    def test_path_traversal_sanitized(self):
         client, svc = make_client()
         file_data = b"data"
         encoded = base64.urlsafe_b64encode(file_data).decode()
@@ -810,9 +802,8 @@ class TestDownloadAttachment:
             "size": len(file_data),
         }
 
-        result = client.download_attachment("msg_1", "att_1", "../../etc/passwd", str(tmp_path))
+        result = client.download_attachment("msg_1", "att_1", "../../etc/passwd")
         assert result["filename"] == "passwd"
-        assert str(tmp_path) in result["path"]
 
 
 # --- _parse_full_message attachment fields ---

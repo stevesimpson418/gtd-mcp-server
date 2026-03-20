@@ -107,6 +107,36 @@ class TestBuildSyncCommands:
 
         assert commands[0]["args"]["due_string"] == "2026-03-15"
 
+    def test_clear_due_date_with_none(self):
+        client, _, _ = make_client()
+
+        ops = [{"id": "task_1", "due_date": None}]
+        commands = client._build_sync_commands(ops)
+
+        args = commands[0]["args"]
+        assert args["due"] is None
+        assert "due_string" not in args
+
+    def test_clear_due_date_with_empty_string(self):
+        client, _, _ = make_client()
+
+        ops = [{"id": "task_1", "due_date": ""}]
+        commands = client._build_sync_commands(ops)
+
+        args = commands[0]["args"]
+        assert args["due"] is None
+        assert "due_string" not in args
+
+    def test_clear_due_date_with_no_date_string(self):
+        client, _, _ = make_client()
+
+        ops = [{"id": "task_1", "due_date": "no date"}]
+        commands = client._build_sync_commands(ops)
+
+        args = commands[0]["args"]
+        assert args["due"] is None
+        assert "due_string" not in args
+
     def test_description_included(self):
         client, _, _ = make_client()
 

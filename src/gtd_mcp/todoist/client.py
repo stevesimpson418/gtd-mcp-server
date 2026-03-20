@@ -321,7 +321,11 @@ class TodoistClient:
             if "labels" in op:
                 update_args["labels"] = op["labels"]
             if "due_date" in op:
-                update_args["due_string"] = op["due_date"]
+                due_val = op["due_date"]
+                if due_val is None or due_val == "" or due_val == "no date":
+                    update_args["due"] = None
+                else:
+                    update_args["due_string"] = due_val
             if "description" in op:
                 update_args["description"] = op["description"]
 

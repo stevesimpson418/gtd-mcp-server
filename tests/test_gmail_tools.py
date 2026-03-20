@@ -80,6 +80,9 @@ class TestRegistration:
             "send_gmail",
             "send_gmail_draft",
             "trash_gmail_messages",
+            "list_gmail_attachments",
+            "read_gmail_attachment",
+            "download_gmail_attachment",
         }
         assert get_tool_names(mcp_server) == expected
 
@@ -256,3 +259,63 @@ class TestTrash:
         result = fn(message_ids=["m1", "m2"])
         mock_client.trash_messages.assert_called_once_with(["m1", "m2"])
         assert result["succeeded"] == 2
+
+
+# --- Attachment tools ---
+
+
+class TestListAttachmentsTool:
+    def test_delegates(self, mcp_server, mock_gmail):
+        mock_client, _, _ = register_with_env(mcp_server, mock_gmail)
+        mock_client.list_attachments.return_value = [
+            {"attachment_id": "att_1", "filename": "report.pdf"}
+        ]
+
+        fn = get_tool_fn(mcp_server, "list_gmail_attachments")
+        result = fn(message_id="msg_1")
+        mock_client.list_attachments.assert_called_once_with("msg_1")
+        assert result[0]["filename"] == "report.pdf"
+
+
+class TestReadAttachmentTool:
+    def test_delegates(self, mcp_server, mock_gmail):
+        mock_client, _, _ = register_with_env(mcp_server, mock_gmail)
+        mock_client.read_attachment_content.return_value = {
+            "filename": "data.csv",
+            "encoding": "text",
+            "content": "a,b\n1,2",
+        }
+
+        fn = get_tool_fn(mcp_server, "read_gmail_attachment")
+        result = fn(
+            message_id="msg_1",
+            attachment_id="att_1",
+            filename="data.csv",
+            mime_type="text/csv",
+        )
+        mock_client.read_attachment_content.assert_called_once_with(
+            "msg_1", "att_1", "data.csv", "text/csv"
+        )
+        assert result["encoding"] == "text"
+
+
+class TestDownloadAttachmentTool:
+    def test_delegates(self, mcp_server, mock_gmail):
+        mock_client, _, _ = register_with_env(mcp_server, mock_gmail)
+        mock_client.download_attachment.return_value = {
+            "filename": "report.pdf",
+            "path": "/tmp/report.pdf",
+            "size": 12345,
+        }
+
+        fn = get_tool_fn(mcp_server, "download_gmail_attachment")
+        result = fn(
+            message_id="msg_1",
+            attachment_id="att_1",
+            filename="report.pdf",
+            download_path="/tmp",
+        )
+        mock_client.download_attachment.assert_called_once_with(
+            "msg_1", "att_1", "report.pdf", "/tmp"
+        )
+        assert result["path"] == "/tmp/report.pdf"

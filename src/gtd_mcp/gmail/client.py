@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import logging
 from email.mime.text import MIMEText
+from pathlib import Path
 
 from gtd_mcp.gmail.exceptions import GmailAPIError
 
@@ -84,6 +85,93 @@ class GmailClient:
             return {"thread_id": thread_id, "message_count": len(messages), "messages": messages}
         except Exception as e:
             raise GmailAPIError(f"Failed to read thread {thread_id}: {e}") from e
+
+    # --- Attachment operations ---
+
+    @staticmethod
+    def _extract_attachment_metadata(payload: dict) -> list[dict]:
+        """Recursively extract attachment metadata from a message payload."""
+        attachments = []
+        for part in payload.get("parts", []):
+            filename = part.get("filename", "")
+            if filename:
+                attachments.append(
+                    {
+                        "attachment_id": part.get("body", {}).get("attachmentId", ""),
+                        "filename": filename,
+                        "mime_type": part.get("mimeType", ""),
+                        "size": part.get("body", {}).get("size", 0),
+                        "part_id": part.get("partId", ""),
+                    }
+                )
+            if "parts" in part:
+                attachments.extend(GmailClient._extract_attachment_metadata(part))
+        return attachments
+
+    def list_attachments(self, message_id: str) -> list[dict]:
+        """List attachments for a message."""
+        try:
+            msg = (
+                self._service.users()
+                .messages()
+                .get(userId="me", id=message_id, format="full")
+                .execute()
+            )
+            return self._extract_attachment_metadata(msg.get("payload", {}))
+        except Exception as e:
+            raise GmailAPIError(f"Failed to list attachments for {message_id}: {e}") from e
+
+    def get_attachment(self, message_id: str, attachment_id: str) -> bytes:
+        """Fetch and decode a raw attachment."""
+        try:
+            response = (
+                self._service.users()
+                .messages()
+                .attachments()
+                .get(userId="me", messageId=message_id, id=attachment_id)
+                .execute()
+            )
+            return base64.urlsafe_b64decode(response["data"])
+        except Exception as e:
+            raise GmailAPIError(
+                f"Failed to get attachment {attachment_id} from {message_id}: {e}"
+            ) from e
+
+    def download_attachment(
+        self, message_id: str, attachment_id: str, filename: str, download_path: str
+    ) -> dict:
+        """Download an attachment to disk."""
+        download_dir = Path(download_path)
+        if not download_dir.is_dir():
+            raise ValueError(f"'{download_path}' is not a valid directory")
+
+        raw_bytes = self.get_attachment(message_id, attachment_id)
+        safe_filename = Path(filename).name
+        file_path = download_dir / safe_filename
+        file_path.write_bytes(raw_bytes)
+        return {"filename": safe_filename, "path": str(file_path), "size": len(raw_bytes)}
+
+    _TEXT_MIME_TYPES = frozenset({"application/json", "application/csv", "application/xml"})
+
+    def read_attachment_content(
+        self, message_id: str, attachment_id: str, filename: str, mime_type: str
+    ) -> dict:
+        """Read attachment content, decoding text types as UTF-8."""
+        raw_bytes = self.get_attachment(message_id, attachment_id)
+        is_text = mime_type.startswith("text/") or mime_type in self._TEXT_MIME_TYPES
+        if is_text:
+            content = raw_bytes.decode("utf-8", errors="replace")
+            encoding = "text"
+        else:
+            content = base64.b64encode(raw_bytes).decode("ascii")
+            encoding = "base64"
+        return {
+            "filename": filename,
+            "mime_type": mime_type,
+            "size": len(raw_bytes),
+            "encoding": encoding,
+            "content": content,
+        }
 
     # --- Label operations ---
 
@@ -318,8 +406,10 @@ class GmailClient:
 
     def _parse_full_message(self, msg: dict) -> dict:
         """Parse a full-format message including body."""
-        headers = msg.get("payload", {}).get("headers", [])
-        body = self._extract_body(msg.get("payload", {}))
+        payload = msg.get("payload", {})
+        headers = payload.get("headers", [])
+        body = self._extract_body(payload)
+        attachments = self._extract_attachment_metadata(payload)
         return {
             "id": msg["id"],
             "thread_id": msg["threadId"],
@@ -331,6 +421,8 @@ class GmailClient:
             "snippet": msg.get("snippet", ""),
             "label_ids": msg.get("labelIds", []),
             "body": body,
+            "has_attachments": len(attachments) > 0,
+            "attachment_count": len(attachments),
         }
 
     @staticmethod

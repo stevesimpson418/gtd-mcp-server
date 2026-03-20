@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -463,3 +464,325 @@ class TestExtractBody:
 
     def test_empty_payload(self):
         assert GmailClient._extract_body({}) == ""
+
+
+# --- Attachment helpers ---
+
+
+def make_attachment_message(
+    msg_id: str = "msg_att",
+    attachments: list[dict] | None = None,
+    inline_images: bool = False,
+    nested: bool = False,
+) -> dict:
+    """Build a Gmail message with attachment parts.
+
+    Args:
+        attachments: List of dicts with keys: filename, mime_type, size, attachment_id.
+        inline_images: If True, include an inline image part (no filename).
+        nested: If True, wrap text parts inside a nested multipart/alternative.
+    """
+    if attachments is None:
+        attachments = [
+            {
+                "filename": "report.pdf",
+                "mime_type": "application/pdf",
+                "size": 12345,
+                "attachment_id": "att_1",
+            }
+        ]
+
+    plain_body = base64.urlsafe_b64encode(b"Email body text").decode()
+
+    text_part = {"mimeType": "text/plain", "body": {"data": plain_body}}
+    attachment_parts = []
+    for att in attachments:
+        attachment_parts.append(
+            {
+                "partId": f"part_{att['attachment_id']}",
+                "mimeType": att["mime_type"],
+                "filename": att["filename"],
+                "body": {
+                    "attachmentId": att["attachment_id"],
+                    "size": att["size"],
+                },
+            }
+        )
+
+    parts = []
+    if nested:
+        html_body = base64.urlsafe_b64encode(b"<p>Email body</p>").decode()
+        parts.append(
+            {
+                "mimeType": "multipart/alternative",
+                "parts": [
+                    text_part,
+                    {"mimeType": "text/html", "body": {"data": html_body}},
+                ],
+            }
+        )
+    else:
+        parts.append(text_part)
+
+    if inline_images:
+        parts.append(
+            {
+                "partId": "part_inline",
+                "mimeType": "image/png",
+                "filename": "",
+                "body": {"attachmentId": "inline_1", "size": 500},
+                "headers": [
+                    {"name": "Content-Disposition", "value": "inline"},
+                ],
+            }
+        )
+
+    parts.extend(attachment_parts)
+
+    return {
+        "id": msg_id,
+        "threadId": "thread_1",
+        "snippet": "Preview...",
+        "labelIds": ["INBOX"],
+        "payload": {
+            "headers": [
+                {"name": "Subject", "value": "With attachments"},
+                {"name": "From", "value": "sender@example.com"},
+                {"name": "Date", "value": "Wed, 3 Mar 2026"},
+                {"name": "To", "value": "me@example.com"},
+                {"name": "Cc", "value": ""},
+            ],
+            "mimeType": "multipart/mixed",
+            "parts": parts,
+        },
+    }
+
+
+# --- List attachments tests ---
+
+
+class TestListAttachments:
+    def test_multipart_with_attachments(self):
+        client, svc = make_client()
+        msg = make_attachment_message(
+            attachments=[
+                {
+                    "filename": "report.pdf",
+                    "mime_type": "application/pdf",
+                    "size": 12345,
+                    "attachment_id": "att_1",
+                },
+                {
+                    "filename": "data.csv",
+                    "mime_type": "text/csv",
+                    "size": 678,
+                    "attachment_id": "att_2",
+                },
+            ]
+        )
+        svc.users().messages().get().execute.return_value = msg
+
+        result = client.list_attachments("msg_att")
+        assert len(result) == 2
+        assert result[0]["filename"] == "report.pdf"
+        assert result[0]["mime_type"] == "application/pdf"
+        assert result[0]["size"] == 12345
+        assert result[0]["attachment_id"] == "att_1"
+        assert result[0]["part_id"] == "part_att_1"
+        assert result[1]["filename"] == "data.csv"
+
+    def test_no_attachments(self):
+        client, svc = make_client()
+        msg = make_multipart_message()
+        svc.users().messages().get().execute.return_value = msg
+
+        result = client.list_attachments("msg_1")
+        assert result == []
+
+    def test_inline_images_excluded(self):
+        client, svc = make_client()
+        msg = make_attachment_message(inline_images=True)
+        svc.users().messages().get().execute.return_value = msg
+
+        result = client.list_attachments("msg_att")
+        assert len(result) == 1
+        assert result[0]["filename"] == "report.pdf"
+
+    def test_nested_multipart(self):
+        client, svc = make_client()
+        msg = make_attachment_message(nested=True)
+        svc.users().messages().get().execute.return_value = msg
+
+        result = client.list_attachments("msg_att")
+        assert len(result) == 1
+        assert result[0]["filename"] == "report.pdf"
+
+
+# --- Get attachment tests ---
+
+
+class TestGetAttachment:
+    def test_fetch_and_decode(self):
+        client, svc = make_client()
+        raw_data = b"PDF file contents here"
+        encoded = base64.urlsafe_b64encode(raw_data).decode()
+        svc.users().messages().attachments().get().execute.return_value = {
+            "data": encoded,
+            "size": len(raw_data),
+        }
+
+        result = client.get_attachment("msg_1", "att_1")
+        assert result == raw_data
+
+    def test_api_error(self):
+        client, svc = make_client()
+        svc.users().messages().attachments().get().execute.side_effect = Exception("Not found")
+
+        with pytest.raises(GmailAPIError, match="Failed to get attachment"):
+            client.get_attachment("msg_1", "bad_att")
+
+
+# --- Read attachment content tests ---
+
+
+class TestReadAttachmentContent:
+    def test_text_csv_decoded(self):
+        client, svc = make_client()
+        csv_data = b"name,value\nalice,42"
+        encoded = base64.urlsafe_b64encode(csv_data).decode()
+        svc.users().messages().attachments().get().execute.return_value = {
+            "data": encoded,
+            "size": len(csv_data),
+        }
+
+        result = client.read_attachment_content("msg_1", "att_1", "data.csv", "text/csv")
+        assert result["encoding"] == "text"
+        assert result["content"] == "name,value\nalice,42"
+        assert result["filename"] == "data.csv"
+        assert result["mime_type"] == "text/csv"
+        assert result["size"] == len(csv_data)
+
+    def test_binary_pdf_base64(self):
+        client, svc = make_client()
+        pdf_data = b"%PDF-1.4 binary content"
+        encoded = base64.urlsafe_b64encode(pdf_data).decode()
+        svc.users().messages().attachments().get().execute.return_value = {
+            "data": encoded,
+            "size": len(pdf_data),
+        }
+
+        result = client.read_attachment_content("msg_1", "att_1", "doc.pdf", "application/pdf")
+        assert result["encoding"] == "base64"
+        assert base64.b64decode(result["content"]) == pdf_data
+
+    def test_json_as_text(self):
+        client, svc = make_client()
+        json_data = b'{"key": "value"}'
+        encoded = base64.urlsafe_b64encode(json_data).decode()
+        svc.users().messages().attachments().get().execute.return_value = {
+            "data": encoded,
+            "size": len(json_data),
+        }
+
+        result = client.read_attachment_content("msg_1", "att_1", "data.json", "application/json")
+        assert result["encoding"] == "text"
+        assert result["content"] == '{"key": "value"}'
+
+    def test_xml_as_text(self):
+        client, svc = make_client()
+        xml_data = b"<root><item>value</item></root>"
+        encoded = base64.urlsafe_b64encode(xml_data).decode()
+        svc.users().messages().attachments().get().execute.return_value = {
+            "data": encoded,
+            "size": len(xml_data),
+        }
+
+        result = client.read_attachment_content("msg_1", "att_1", "data.xml", "application/xml")
+        assert result["encoding"] == "text"
+        assert result["content"] == "<root><item>value</item></root>"
+
+
+# --- Download attachment tests ---
+
+
+class TestDownloadAttachment:
+    def test_saves_file(self, tmp_path):
+        client, svc = make_client()
+        file_data = b"file contents"
+        encoded = base64.urlsafe_b64encode(file_data).decode()
+        svc.users().messages().attachments().get().execute.return_value = {
+            "data": encoded,
+            "size": len(file_data),
+        }
+
+        result = client.download_attachment("msg_1", "att_1", "report.pdf", str(tmp_path))
+        assert result["filename"] == "report.pdf"
+        assert result["size"] == len(file_data)
+        saved = Path(result["path"])
+        assert saved.exists()
+        assert saved.read_bytes() == file_data
+
+    def test_invalid_dir_raises(self):
+        client, _ = make_client()
+        with pytest.raises(ValueError, match="not a valid directory"):
+            client.download_attachment("msg_1", "att_1", "file.pdf", "/nonexistent/path")
+
+    def test_path_traversal_sanitized(self, tmp_path):
+        client, svc = make_client()
+        file_data = b"data"
+        encoded = base64.urlsafe_b64encode(file_data).decode()
+        svc.users().messages().attachments().get().execute.return_value = {
+            "data": encoded,
+            "size": len(file_data),
+        }
+
+        result = client.download_attachment("msg_1", "att_1", "../../etc/passwd", str(tmp_path))
+        assert result["filename"] == "passwd"
+        assert str(tmp_path) in result["path"]
+
+
+# --- _parse_full_message attachment fields ---
+
+
+class TestParseFullMessageAttachments:
+    def test_has_attachments_true(self):
+        client, _ = make_client()
+        msg = make_attachment_message()
+        result = client._parse_full_message(msg)
+        assert result["has_attachments"] is True
+        assert result["attachment_count"] == 1
+
+    def test_has_attachments_false(self):
+        client, _ = make_client()
+        msg = make_message()
+        result = client._parse_full_message(msg)
+        assert result["has_attachments"] is False
+        assert result["attachment_count"] == 0
+
+    def test_multiple_attachments_count(self):
+        client, _ = make_client()
+        msg = make_attachment_message(
+            attachments=[
+                {
+                    "filename": "a.pdf",
+                    "mime_type": "application/pdf",
+                    "size": 100,
+                    "attachment_id": "att_1",
+                },
+                {
+                    "filename": "b.csv",
+                    "mime_type": "text/csv",
+                    "size": 200,
+                    "attachment_id": "att_2",
+                },
+                {
+                    "filename": "c.docx",
+                    "mime_type": "application/vnd.openxmlformats",
+                    "size": 300,
+                    "attachment_id": "att_3",
+                },
+            ]
+        )
+        result = client._parse_full_message(msg)
+        assert result["has_attachments"] is True
+        assert result["attachment_count"] == 3
